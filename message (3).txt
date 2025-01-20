@@ -1,0 +1,375 @@
+# data_loader.py
+from abc import ABC, abstractmethod
+import pandas as pd
+from datetime import datetime
+from dataclasses import dataclass
+from typing import List, Dict, Optional
+import plotly.express as px
+import streamlit as st
+from math import sqrt, ceil
+import numpy as np
+
+@dataclass
+class SalesData:
+    invoice_no: str
+    stock_code: str
+    description: str
+    quantity: int
+    invoice_date: datetime
+    unit_price: float
+    customer_id: str
+    country: str
+    year: int
+    month: int
+
+class DataLoader(ABC):
+    @abstractmethod
+    def load_data(self, source) -> List[SalesData]:
+        pass
+
+class CSVDataLoader(DataLoader):
+    def clean_special_chars(self, text: str) -> str:
+        """Nettoie les caractères spéciaux tout en préservant ceux qui sont valides"""
+        if pd.isna(text):
+            return ""
+        # Préserve les caractères spéciaux mentionnés tout en nettoyant les autres
+        valid_chars = set(' "\'!?/:.,-+&()_*abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789')
+        return ''.join(c if c in valid_chars else ' ' for c in str(text))
+
+    def load_data(self, file_path) -> List[SalesData]:
+        """
+        Charge les données avec gestion spécifique pour Windows
+        """
+        try:
+            # Essai avec l'encodage Windows par défaut
+            df = pd.read_csv(file_path, encoding='cp1252', quotechar='"', escapechar='\\')
+        except Exception:
+            try:
+                # Deuxième essai avec latin-1 si cp1252 échoue
+                df = pd.read_csv(file_path, encoding='latin-1', quotechar='"', escapechar='\\')
+            except Exception:
+                # Dernier essai avec paramètres plus permissifs
+                df = pd.read_csv(file_path, encoding='latin-1', quoting=3, escapechar='\\')
+
+        try:
+            # Nettoyage des chaînes de caractères peut être opti
+	    for col in ['Description', 'StockCode', 'Country']:
+                if col in df.columns:
+                    df[col] = df[col].apply(self.clean_special_chars)
+            
+            # Nettoyage des données numériques
+            df = df.dropna(subset=['InvoiceNo', 'StockCode', 'Quantity'])
+            df['CustomerID'] = df['CustomerID'].fillna('Unknown')
+            df['Quantity'] = pd.to_numeric(df['Quantity'], errors='coerce')
+            df['UnitPrice'] = pd.to_numeric(df['UnitPrice'], errors='coerce')
+            
+            # Élimination des lignes avec des valeurs invalides
+            df = df[df['Quantity'].notna() & df['UnitPrice'].notna()]
+            
+            # Gestion des dates avec format Windows standard
+            try:
+                df['InvoiceDate'] = pd.to_datetime(df['InvoiceDate'], format='%d/%m/%Y %H:%M')
+            except Exception:
+                try:
+                    df['InvoiceDate'] = pd.to_datetime(df['InvoiceDate'])
+                except Exception as e:
+                    st.error(f"Erreur de conversion des dates: {str(e)}")
+                    raise
+            
+            df['Year'] = df['InvoiceDate'].dt.year
+            df['Month'] = df['InvoiceDate'].dt.month
+        
+                    # Conversion en liste de SalesData avec gestion d'erreur
+            sales_data_list = []
+	    # peut être opti
+            for _, row in df.iterrows():
+                try:
+                    sales_data = SalesData(
+                        invoice_no=str(row['InvoiceNo']),  # Conversion explicite en string
+                        stock_code=str(row['StockCode']),
+                        description=str(row['Description']),
+                        quantity=int(row['Quantity']),      # Conversion explicite en int
+                        invoice_date=row['InvoiceDate'],
+                        unit_price=float(row['UnitPrice']), # Conversion explicite en float
+                        customer_id=str(row['CustomerID']),
+                        country=str(row['Country']),
+                        year=int(row['Year']),
+                        month=int(row['Month'])
+                    )
+                    sales_data_list.append(sales_data)
+                except Exception as e:
+                    st.warning(f"Ligne ignorée à cause d'une erreur de conversion: {str(e)}")
+                    continue
+            
+            if not sales_data_list:
+                raise ValueError("Aucune donnée n'a pu être chargée correctement")
+                
+            return sales_data_list
+        except Exception as e:
+            raise ValueError(f"Erreur lors du traitement des données: {str(e)}")
+
+# stock_analyzer.py
+class StockAnalyzer:
+    def __init__(self, sales_data: List[SalesData]):
+        self.sales_data = sales_data
+
+    def to_dataframe(self) -> pd.DataFrame:
+        return pd.DataFrame([vars(sale) for sale in self.sales_data])
+
+    def calculate_seasonal_factors(self, df: pd.DataFrame) -> pd.DataFrame:
+        # Calculer les facteurs saisonniers pour chaque mois
+        seasonal = df.groupby(['stock_code', 'month'])['quantity'].mean()
+        yearly_avg = df.groupby('stock_code')['quantity'].mean()
+        seasonal_factors = seasonal / yearly_avg
+        return seasonal_factors.reset_index()
+
+    def analyze_patterns(self) -> Dict[str, pd.DataFrame]:
+        df = self.to_dataframe()
+        
+        # Calculer les facteurs saisonniers
+        seasonal_factors = self.calculate_seasonal_factors(df)
+        
+        # Calculer les statistiques de base par produit et mois
+        monthly_stats = df.groupby(['stock_code', 'description', 'year', 'month']).agg({
+            'quantity': ['sum', 'mean', 'std', 'count']
+        }).reset_index()
+        monthly_stats.columns = ['stock_code', 'description', 'year', 'month', 'total_sales', 'avg_sales', 'std_sales', 'transaction_count']
+        
+        # Calculer la tendance
+        trend = df.groupby(['stock_code', 'year', 'month']).agg({
+            'quantity': 'sum'
+        }).reset_index()
+        trend['date'] = pd.to_datetime(trend[['year', 'month']].assign(day=1))
+        trend = trend.sort_values('date')
+        
+        # Calculer les métriques de stock
+        stock_metrics = pd.DataFrame()
+        for stock_code in df['stock_code'].unique():
+            product_data = monthly_stats[monthly_stats['stock_code'] == stock_code]
+            if len(product_data) >= 3:  # Au moins 3 mois de données
+                recent_avg = product_data['avg_sales'].tail(3).mean()
+                recent_std = product_data['std_sales'].tail(3).mean()
+                max_sales = product_data['total_sales'].max()
+                seasonal_factor = seasonal_factors[seasonal_factors['stock_code'] == stock_code]['quantity'].max()
+                
+                # Calcul du stock de sécurité et du point de réapprovisionnement
+                lead_time = 7  # Temps de réapprovisionnement en jours
+                service_level_z = 1.96  # Pour un niveau de service de 95%
+                
+                daily_avg = recent_avg / 30 if not pd.isna(recent_avg) else 0
+                daily_std = recent_std / sqrt(30) if not pd.isna(recent_std) else 0
+                
+                # Calcul avec gestion des valeurs manquantes
+                try:
+                    safety_stock = (service_level_z * daily_std * sqrt(lead_time))
+                    safety_stock = ceil(safety_stock) if not pd.isna(safety_stock) else 0
+                    
+                    reorder_point = (daily_avg * lead_time) + safety_stock
+                    reorder_point = ceil(reorder_point) if not pd.isna(reorder_point) else 0
+                except (ValueError, TypeError):
+                    safety_stock = 0
+                    reorder_point = 0
+                
+                stock_metrics = pd.concat([stock_metrics, pd.DataFrame({
+                    'stock_code': [stock_code],
+                    'description': [product_data['description'].iloc[0]],
+                    'avg_monthly_sales': [float(recent_avg) if not pd.isna(recent_avg) else 0],
+                    'safety_stock': [safety_stock],
+                    'reorder_point': [reorder_point],
+                    'max_monthly_sales': [float(max_sales) if not pd.isna(max_sales) else 0],
+                    'seasonal_factor': [float(seasonal_factor) if not pd.isna(seasonal_factor) else 1.0]
+                })])
+        
+        return {
+            'stock_metrics': stock_metrics,
+            'seasonal_factors': seasonal_factors,
+            'monthly_trends': trend
+        }
+
+# map_visualizer.py
+class MapVisualizer:
+    def __init__(self, sales_data: List[SalesData]):
+        self.sales_data = sales_data
+
+    def create_map(self, year: int, month: int):
+        df = pd.DataFrame([vars(sale) for sale in self.sales_data])
+        mask = (df['year'] == year) & (df['month'] == month)
+        filtered_df = df[mask]
+        
+        # Aggrégation par pays avec plus de métriques
+        country_orders = filtered_df.groupby('country').agg({
+            'invoice_no': 'count',
+            'quantity': 'sum',
+            'unit_price': lambda x: (x * filtered_df.loc[x.index, 'quantity']).sum()
+        }).reset_index()
+        
+        # Calcul des pourcentages pour une meilleure comparaison
+        total_orders = country_orders['invoice_no'].sum()
+        total_quantity = country_orders['quantity'].sum()
+        country_orders['orders_percentage'] = (country_orders['invoice_no'] / total_orders * 100).round(2)
+        country_orders['quantity_percentage'] = (country_orders['quantity'] / total_quantity * 100).round(2)
+        
+        # Création de la carte avec un meilleur contraste
+        fig = px.choropleth(
+            country_orders,
+            locations='country',
+            locationmode='country names',
+            color='orders_percentage',
+            hover_data={
+                'country': True,
+                'orders_percentage': ':.2f',
+                'quantity_percentage': ':.2f',
+                'invoice_no': True,
+                'quantity': True,
+                'unit_price': ':.2f'
+            },
+            color_continuous_scale='RdYlBu_r',  # Une échelle avec plus de contraste
+            title=f'Distribution des Commandes par Pays - {month}/{year}'
+        )
+        
+        # Personnalisation de l'apparence
+        fig.update_layout(
+            coloraxis_colorbar_title="% des Commandes",
+            geo=dict(
+                showframe=False,
+                showcoastlines=True,
+                projection_type='equirectangular'
+            ),
+            width=1000,
+            height=600
+        )
+        
+        # Ajout d'une bordure plus visible pour les pays avec des commandes
+        fig.update_geos(
+            showcountries=True,
+            countrycolor="darkgray",
+            showland=True,
+            landcolor="lightgray"
+        )
+        
+        return fig
+
+# ui_components.py
+class UIComponent(ABC):
+    @abstractmethod
+    def render(self):
+        pass
+
+class StockAnalysisUI(UIComponent):
+    def __init__(self, analyzer: StockAnalyzer):
+        self.analyzer = analyzer
+
+    def plot_seasonal_trends(self, seasonal_factors: pd.DataFrame):
+        # Créer un graphique de saisonnalité avec Plotly
+        fig = px.line(seasonal_factors, 
+                     x='month', 
+                     y='quantity',
+                     color='stock_code',
+                     title='Facteurs Saisonniers par Produit')
+        fig.update_layout(
+            xaxis_title="Mois",
+            yaxis_title="Facteur Saisonnier",
+            showlegend=True
+        )
+        return fig
+
+    def render(self):
+        st.header("Analyse et Recommandations de Stock")
+        
+        # Obtenir toutes les analyses
+        analysis_results = self.analyzer.analyze_patterns()
+        stock_metrics = analysis_results['stock_metrics']
+        seasonal_factors = analysis_results['seasonal_factors']
+        monthly_trends = analysis_results['monthly_trends']
+        
+        # Afficher les métriques principales
+        st.subheader("Recommandations de Stock")
+        metrics_to_display = stock_metrics[[
+            'stock_code', 'description', 'avg_monthly_sales', 
+            'safety_stock', 'reorder_point', 'max_monthly_sales'
+        ]].round(2)
+        
+        st.write("Points clés de gestion des stocks:")
+        st.markdown("""
+        - **Safety Stock**: Stock minimum à conserver pour éviter les ruptures
+        - **Point de Réapprovisionnement**: Niveau de stock déclenchant une nouvelle commande
+        - **Ventes Max**: Pic historique des ventes mensuelles
+        """)
+        
+        st.dataframe(metrics_to_display)
+        
+        # Afficher le graphique de saisonnalité
+        st.subheader("Analyse Saisonnière")
+        seasonal_chart = self.plot_seasonal_trends(seasonal_factors)
+        st.plotly_chart(seasonal_chart)
+        
+        # Export des données
+        csv = stock_metrics.to_csv(index=False)
+        st.download_button(
+            label="Télécharger les recommandations",
+            data=csv,
+            file_name="stock_recommendations.csv",
+            mime="text/csv"
+        )
+
+class MapUI(UIComponent):
+    def __init__(self, visualizer: MapVisualizer, available_years: List[int], available_months: List[int]):
+        self.visualizer = visualizer
+        self.available_years = available_years
+        self.available_months = available_months
+
+    def render(self):
+        st.header("Carte Interactive des Commandes")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            selected_year = st.selectbox("Sélectionner l'année", sorted(self.available_years))
+        with col2:
+            selected_month = st.selectbox("Sélectionner le mois", sorted(self.available_months))
+        
+        fig = self.visualizer.create_map(selected_year, selected_month)
+        st.plotly_chart(fig)
+
+# app.py
+class StockManagementApp:
+    def __init__(self, data_loader: DataLoader):
+        self.data_loader = data_loader
+        self.sales_data: Optional[List[SalesData]] = None
+        self.analyzer: Optional[StockAnalyzer] = None
+        self.visualizer: Optional[MapVisualizer] = None
+
+    def load_data(self, source) -> bool:
+        try:
+            self.sales_data = self.data_loader.load_data(source)
+            self.analyzer = StockAnalyzer(self.sales_data)
+            self.visualizer = MapVisualizer(self.sales_data)
+            return True
+        except Exception as e:
+            st.error(f"Erreur lors du chargement des données: {str(e)}")
+            return False
+
+    def run(self):
+        st.title("Gestion des Stocks et Analyse des Commandes")
+        
+        uploaded_file = st.file_uploader("Charger le fichier CSV des données", type=['csv'])
+        
+        if uploaded_file is not None and self.load_data(uploaded_file):
+            df = pd.DataFrame([vars(sale) for sale in self.sales_data])
+            available_years = sorted(df['year'].unique())
+            available_months = sorted(df['month'].unique())
+            
+            st.sidebar.title("Navigation")
+            page = st.sidebar.radio("Aller à", ["Analyse des Stocks", "Carte des Commandes"])
+            
+            if page == "Analyse des Stocks":
+                StockAnalysisUI(self.analyzer).render()
+            else:
+                MapUI(self.visualizer, available_years, available_months).render()
+
+# main.py
+def main():
+    app = StockManagementApp(CSVDataLoader())
+    app.run()
+
+if __name__ == "__main__":
+    main()
