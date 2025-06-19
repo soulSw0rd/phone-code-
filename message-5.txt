@@ -1,0 +1,254 @@
+<#
+.SYNOPSIS
+    Surveille les fichiers dans un dossier et renvoie un code de sortie si un fichier reste plus de 10 minutes.
+.DESCRIPTION
+    Ce script détecte les nouveaux fichiers ajoutés à un dossier et surveille leur temps de présence
+    dans ce dossier. Si un fichier reste plus de 10 minutes, le script se termine avec un code de sortie
+    spécifique pour être interprété par une sonde de supervision.
+    Le suivi est effectué via un fichier CSV qui contient les informations de chaque fichier.
+.NOTES
+    Créé le: 18/06/2025
+    Environnement: Windows Server
+.OUTPUTS
+    Code de sortie 0 : Aucun problème détecté
+    Code de sortie 1 : Au moins un fichier a dépassé le temps limite
+    Code de sortie 2 : Erreur dans l'exécution du script
+#>
+
+# Configuration - À modifier selon vos besoins
+$dossierASurveiller = "C:\DossierASurveiller" # Chemin du dossier à surveiller
+$tempsLimiteMinutes = 10 # Temps limite en minutes avant alerte
+$intervalleVerificationSecondes = 60 # Intervalle entre les vérifications en secondes
+$csvPath = Join-Path -Path $PSScriptRoot -ChildPath "fichiers_surveillance.csv" # Chemin du fichier CSV de suivi
+$logPath = Join-Path -Path $PSScriptRoot -ChildPath "surveillance_log.txt" # Chemin du fichier de log
+
+# Fonction pour charger les données du CSV
+function Charger-DonneesCSV {
+    if (Test-Path -Path $csvPath) {
+        return Import-Csv -Path $csvPath -Delimiter ";" 
+    }
+    return @()
+}
+
+# Fonction pour sauvegarder les données dans le CSV
+function Sauvegarder-DonneesCSV {
+    param (
+        [object[]]$donnees
+    )
+    
+    if ($donnees.Count -gt 0) {
+        $donnees | Export-Csv -Path $csvPath -Delimiter ";" -NoTypeInformation
+    }
+    else {
+        # Si aucun fichier à surveiller, on crée un CSV vide avec les entêtes
+        @() | Select-Object NomFichier, CheminComplet, FileHash, HeureAjout, TempsPasseMinutes, HasBreached, AlerteEnvoyee | 
+            Export-Csv -Path $csvPath -Delimiter ";" -NoTypeInformation
+    }
+}
+
+# Fonction pour calculer le hash SHA256 d'un fichier
+function Get-FileHash {
+    param (
+        [string]$filePath
+    )
+    
+    try {
+        # Utiliser la cmdlet native Get-FileHash de PowerShell avec SHA256
+        return (Microsoft.PowerShell.Utility\Get-FileHash -Path $filePath -Algorithm SHA256).Hash
+    }
+    catch {
+        Ecrire-Log "Erreur lors du calcul du hash pour $filePath : $_"
+        return "HASH_ERROR"
+    }
+}
+
+# Fonction pour écrire dans un fichier log
+function Ecrire-Log {
+    param (
+        [string]$message
+    )
+    
+    "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - $message" | Out-File -FilePath $logPath -Append
+}
+
+# Fonction pour terminer le script avec un code de sortie spécifique
+function Terminer-Avec-Code {
+    param (
+        [int]$codeExit,
+        [string]$message
+    )
+    
+    Ecrire-Log $message
+    Write-Host $message
+    exit $codeExit
+}
+
+# Fonction pour détecter les nouveaux fichiers et mettre à jour les existants
+function Mettre-A-Jour-Fichiers {
+    $donneesActuelles = Charger-DonneesCSV
+    $fichiersActuels = Get-ChildItem -Path $dossierASurveiller -File
+    $maintenant = Get-Date
+    $donneesMAJ = @()
+    
+    # Pour chaque fichier actuellement dans le dossier
+    foreach ($fichier in $fichiersActuels) {
+        $fileHash = Get-FileHash -filePath $fichier.FullName
+        $enregistrementExistant = $donneesActuelles | Where-Object { $_.FileHash -eq $fileHash -and $_.CheminComplet -eq $fichier.FullName }
+        
+        if ($enregistrementExistant) {
+            # Mettre à jour le temps passé
+            $heureAjout = [DateTime]::ParseExact($enregistrementExistant.HeureAjout, "dd/MM/yyyy HH:mm:ss", $null)
+            $tempsPasseMinutes = [math]::Round(($maintenant - $heureAjout).TotalMinutes, 2)
+            
+            # Créer un nouvel objet pour l'enregistrement mis à jour
+            $enregistrementMAJ = [PSCustomObject]@{
+                NomFichier = $enregistrementExistant.NomFichier
+                CheminComplet = $enregistrementExistant.CheminComplet
+                FileHash = $fileHash
+                HeureAjout = $enregistrementExistant.HeureAjout
+                TempsPasseMinutes = $tempsPasseMinutes
+                HasBreached = ($tempsPasseMinutes -ge $tempsLimiteMinutes).ToString()
+                AlerteEnvoyee = $enregistrementExistant.AlerteEnvoyee
+            }
+            
+            $donneesMAJ += $enregistrementMAJ
+        }
+        else {
+            # Ajouter un nouvel enregistrement
+            $nouvelEnregistrement = [PSCustomObject]@{
+                NomFichier = $fichier.Name
+                CheminComplet = $fichier.FullName
+                FileHash = $fileHash
+                HeureAjout = $maintenant.ToString("dd/MM/yyyy HH:mm:ss")
+                TempsPasseMinutes = 0
+                HasBreached = "False"
+                AlerteEnvoyee = "False"
+            }
+            
+            $donneesMAJ += $nouvelEnregistrement
+            Ecrire-Log "Nouveau fichier détecté: $($fichier.Name), hash: $fileHash, ajouté à $(Get-Date -Format 'dd/MM/yyyy HH:mm:ss')"
+        }
+    }
+    
+    # Sauvegarder les mises à jour
+    Sauvegarder-DonneesCSV -donnees $donneesMAJ
+    
+    # Retourner les données mises à jour
+    return $donneesMAJ
+}
+
+# Fonction pour vérifier si des alertes doivent être envoyées
+function Verifier-Alertes {
+    param (
+        [object[]]$donnees
+    )
+    
+    $fichiersConcernes = $donnees | Where-Object { $_.HasBreached -eq "True" }
+    
+    if ($fichiersConcernes.Count -gt 0) {
+        $detailsFichiers = $fichiersConcernes | ForEach-Object { 
+            "$($_.NomFichier) (ajouté le $($_.HeureAjout), temps écoulé: $($_.TempsPasseMinutes) minutes)" 
+        }
+        
+        $message = "ALERTE: $($fichiersConcernes.Count) fichier(s) en attente depuis plus de $tempsLimiteMinutes minutes: $($detailsFichiers -join ', ')"
+        Ecrire-Log $message
+        
+        # Renvoyer un code d'erreur pour le système de supervision
+        Terminer-Avec-Code -codeExit 1 -message $message
+    }
+    
+    return $false
+}
+
+# Vérifier si le dossier existe
+if (-not (Test-Path -Path $dossierASurveiller -PathType Container)) {
+    Terminer-Avec-Code -codeExit 2 -message "Le dossier '$dossierASurveiller' n'existe pas."
+}
+
+# Initialiser le CSV s'il n'existe pas
+if (-not (Test-Path -Path $csvPath)) {
+    Sauvegarder-DonneesCSV -donnees @()
+    Ecrire-Log "Fichier CSV de suivi créé: $csvPath"
+}
+
+Ecrire-Log "Démarrage de la surveillance du dossier '$dossierASurveiller'"
+Write-Host "Surveillance du dossier '$dossierASurveiller' démarrée."
+
+try {
+    # Configurer le FileSystemWatcher pour détecter les nouveaux fichiers
+    $watcher = New-Object System.IO.FileSystemWatcher
+    $watcher.Path = $dossierASurveiller
+    $watcher.IncludeSubdirectories = $false
+    $watcher.EnableRaisingEvents = $true
+      # Définir les événements pour le FileSystemWatcher
+    $action = {
+        $changeType = $Event.SourceEventArgs.ChangeType
+        $name = $Event.SourceEventArgs.Name
+        
+        if ($changeType -eq 'Created') {
+            $donnees = Mettre-A-Jour-Fichiers
+            Write-Host "Nouveau fichier détecté et ajouté au suivi: $name"
+            
+            # Vérifier immédiatement si des fichiers ont dépassé le temps limite
+            Verifier-Alertes -donnees $donnees
+        }
+    }
+    
+    # Enregistrer les événements
+    $created = Register-ObjectEvent -InputObject $watcher -EventName Created -Action $action
+    $deleted = Register-ObjectEvent -InputObject $watcher -EventName Deleted -Action {
+        $name = $Event.SourceEventArgs.Name
+        $fullPath = Join-Path -Path $dossierASurveiller -ChildPath $name
+        
+        # Charger les données existantes
+        $donnees = Charger-DonneesCSV
+        
+        # Filtrer les données pour supprimer l'entrée du fichier supprimé
+        $donneesFiltered = $donnees | Where-Object { $_.CheminComplet -ne $fullPath }
+        
+        # Sauvegarder les données mises à jour
+        if ($donnees.Count -ne $donneesFiltered.Count) {
+            Sauvegarder-DonneesCSV -donnees $donneesFiltered
+            Ecrire-Log "Fichier supprimé ou déplacé: $name. Entrée supprimée du CSV."
+            Write-Host "Fichier supprimé ou déplacé: $name. Entrée supprimée du CSV."
+        }
+    }
+    
+    # Boucle principale - surveillance périodique
+    while ($true) {
+        # Mettre à jour les données des fichiers
+        $donnees = Mettre-A-Jour-Fichiers
+        
+        # Vérifier si des alertes doivent être envoyées
+        Verifier-Alertes -donnees $donnees
+        
+        # Si aucun fichier n'est présent, attendre plus longtemps
+        if ((Get-ChildItem -Path $dossierASurveiller -File).Count -eq 0) {
+            Write-Host "Aucun fichier dans le dossier. Vérification suivante dans $($intervalleVerificationSecondes * 2) secondes."
+            Start-Sleep -Seconds ($intervalleVerificationSecondes * 2)
+        }
+        else {
+            Write-Host "$(Get-Date -Format 'HH:mm:ss') - $((Get-ChildItem -Path $dossierASurveiller -File).Count) fichier(s) en surveillance. Prochaine vérification dans $intervalleVerificationSecondes secondes."
+            Start-Sleep -Seconds $intervalleVerificationSecondes
+        }    }
+}
+catch {
+    $messageErreur = "ERREUR CRITIQUE: $_"
+    Ecrire-Log $messageErreur
+    Write-Error $messageErreur
+    
+    # Nettoyer les événements enregistrés
+    Unregister-Event -SourceIdentifier $created.Name -ErrorAction SilentlyContinue
+    Unregister-Event -SourceIdentifier $deleted.Name -ErrorAction SilentlyContinue
+    
+    # Terminer avec un code d'erreur
+    exit 2
+}
+finally {
+    # Nettoyer les événements enregistrés
+    Unregister-Event -SourceIdentifier $created.Name -ErrorAction SilentlyContinue
+    Unregister-Event -SourceIdentifier $deleted.Name -ErrorAction SilentlyContinue
+    Ecrire-Log "Arrêt de la surveillance du dossier '$dossierASurveiller'"
+      # Si le script se termine sans avoir détecté de problème, renvoyer le code de succès
+    exit 0
+}
