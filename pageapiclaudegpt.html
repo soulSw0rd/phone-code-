@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Providers de Publicité Payante - API Access</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+            max-width: 100%;
+            margin: 0 auto;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            margin: 0;
+            font-size: 2.2em;
+            font-weight: 700;
+        }
+        
+        .header p {
+            margin: 10px 0 0 0;
+            opacity: 0.9;
+            font-size: 1.1em;
+        }
+        
+        .controls {
+            padding: 20px 30px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #e9ecef;
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-block;
+        }
+        
+        .btn-primary {
+            background: #007bff;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #0056b3;
+            transform: translateY(-2px);
+        }
+        
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+        
+        .btn-success:hover {
+            background: #1e7e34;
+            transform: translateY(-2px);
+        }
+        
+        .filter-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .filter-group label {
+            font-weight: 600;
+            color: #495057;
+        }
+        
+        .filter-group select {
+            padding: 8px 12px;
+            border: 1px solid #ced4da;
+            border-radius: 6px;
+            background: white;
+        }
+        
+        .table-container {
+            overflow-x: auto;
+            padding: 0;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+        
+        th {
+            background: #343a40;
+            color: white;
+            padding: 15px 12px;
+            text-align: left;
+            font-weight: 600;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        
+        td {
+            padding: 12px;
+            border-bottom: 1px solid #e9ecef;
+            vertical-align: top;
+        }
+        
+        tr:hover {
+            background: #f8f9fa;
+        }
+        
+        .provider-name {
+            font-weight: 600;
+            color: #1e3c72;
+        }
+        
+        .category {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        .category.search { background: #e3f2fd; color: #1976d2; }
+        .category.social { background: #f3e5f5; color: #7b1fa2; }
+        .category.native { background: #e8f5e8; color: #388e3c; }
+        .category.programmatic { background: #fff3e0; color: #f57c00; }
+        
+        .api-link {
+            color: #007bff;
+            text-decoration: none;
+            font-weight: 500;
+        }
+        
+        .api-link:hover {
+            text-decoration: underline;
+        }
+        
+        .access-tag {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: 600;
+            margin: 2px;
+        }
+        
+        .access-free { background: #d4edda; color: #155724; }
+        .access-paid { background: #fff3cd; color: #856404; }
+        .access-approval { background: #f8d7da; color: #721c24; }
+        
+        .sdk-list {
+            font-size: 12px;
+            color: #6c757d;
+        }
+        
+        .stats {
+            padding: 20px 30px;
+            background: #f8f9fa;
+            border-top: 1px solid #e9ecef;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+        
+        .stat-item {
+            text-align: center;
+        }
+        
+        .stat-number {
+            font-size: 1.8em;
+            font-weight: 700;
+            color: #1e3c72;
+        }
+        
+        .stat-label {
+            font-size: 0.9em;
+            color: #6c757d;
+            font-weight: 500;
+        }
+        
+        @media (max-width: 768px) {
+            .controls {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            .filter-group {
+                justify-content: space-between;
+            }
+            
+            th, td {
+                padding: 8px;
+                font-size: 12px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 Providers de Publicité Payante</h1>
+            <p>Guide complet des API pour tableau de bord centralisé iOS/Android</p>
+        </div>
+        
+        <div class="controls">
+            <button class="btn btn-primary" onclick="exportToCSV()">📊 Exporter CSV</button>
+            <button class="btn btn-success" onclick="exportToExcel()">📈 Exporter Excel</button>
+            
+            <div class="filter-group">
+                <label>Catégorie:</label>
+                <select id="categoryFilter" onchange="filterTable()">
+                    <option value="">Toutes</option>
+                    <option value="search">Recherche & Display</option>
+                    <option value="social">Réseaux Sociaux</option>
+                    <option value="native">Publicité Native</option>
+                    <option value="programmatic">Programmatique</option>
+                </select>
+            </div>
+            
+            <div class="filter-group">
+                <label>Accès API:</label>
+                <select id="accessFilter" onchange="filterTable()">
+                    <option value="">Tous</option>
+                    <option value="gratuit">Gratuit</option>
+                    <option value="payant">Payant</option>
+                    <option value="approval">Sur approbation</option>
+                </select>
+            </div>
+        </div>
+        
+        <div class="table-container">
+            <table id="providersTable">
+                <thead>
+                    <tr>
+                        <th>Provider</th>
+                        <th>Catégorie</th>
+                        <th>Documentation API</th>
+                        <th>Authentification</th>
+                        <th>Accès API Gratuit</th>
+                        <th>Accès API Payant</th>
+                        <th>Sandbox/Test</th>
+                        <th>SDKs Disponibles</th>
+                        <th>Données Principales</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr data-category="search" data-access="gratuit">
+                        <td class="provider-name">Google Ads</td>
+                        <td><span class="category search">Recherche</span></td>
+                        <td><a href="https://developers.google.com/google-ads/api/docs/start" class="api-link">Google Ads API</a></td>
+                        <td>OAuth2</td>
+                        <td><span class="access-tag access-free">Gratuit avec limites</span></td>
+                        <td><span class="access-tag access-paid">Plans entreprise</span></td>
+                        <td><a href="https://developers.google.com/google-ads/api/docs/first-call/overview#test_account" class="api-link">Test Manager</a></td>
+                        <td class="sdk-list">Python, Java, C#, PHP, Ruby, Node.js</td>
+                        <td>Campagnes, clics, impressions, coûts, conversions, keywords</td>
+                    </tr>
+                    <tr data-category="search" data-access="gratuit">
+                        <td class="provider-name">Microsoft Ads</td>
+                        <td><span class="category search">Recherche</span></td>
+                        <td><a href="https://docs.microsoft.com/en-us/advertising/guides/" class="api-link">Bing Ads API</a></td>
+                        <td>OAuth2</td>
+                        <td><span class="access-tag access-free">Gratuit</span></td>
+                        <td><span class="access-tag access-paid">Premium support</span></td>
+                        <td><a href="https://docs.microsoft.com/en-us/advertising/guides/sandbox" class="api-link">Sandbox</a></td>
+                        <td class="sdk-list">C#, Java, Python, PHP</td>
+                        <td>Campagnes Bing/Yahoo, keywords, audiences, performances</td>
+                    </tr>
+                    <tr data-category="search" data-access="approval">
+                        <td class="provider-name">Amazon Ads</td>
+                        <td><span class="category search">Recherche</span></td>
+                        <td><a href="https://advertising.amazon.com/API/docs" class="api-link">Amazon Advertising API</a></td>
+                        <td>OAuth2</td>
+                        <td><span class="access-tag access-approval">Sur approbation vendeur</span></td>
+                        <td><span class="access-tag access-paid">Solutions entreprise</span></td>
+                        <td><a href="https://advertising.amazon.com/API/docs/en-us/setting-up/step-by-step-guide#step-4-test-api-connectivity" class="api-link">Test Environment</a></td>
+                        <td class="sdk-list">Java, Python, Node.js</td>
+                        <td>Sponsored Products, Brands, Display, DSP</td>
+                    </tr>
+                    <tr data-category="search" data-access="gratuit">
+                        <td class="provider-name">Apple Search Ads</td>
+                        <td><span class="category search">App Store</span></td>
+                        <td><a href="https://developer.apple.com/documentation/apple_search_ads" class="api-link">Search Ads API</a></td>
+                        <td>JWT (Certificate)</td>
+                        <td><span class="access-tag access-free">Gratuit</span></td>
+                        <td><span class="access-tag access-paid">Advanced plans</span></td>
+                        <td>Environnement de test intégré</td>
+                        <td class="sdk-list">Swift, Python, Ruby</td>
+                        <td>App Store search ads, installations, keywords</td>
+                    </tr>
+                    <tr data-category="social" data-access="gratuit">
+                        <td class="provider-name">Meta Ads (Facebook/Instagram)</td>
+                        <td><span class="category social">Social</span></td>
+                        <td><a href="https://developers.facebook.com/docs/marketing-api" class="api-link">Marketing API</a></td>
+                        <td>OAuth2</td>
+                        <td><span class="access-tag access-free">Gratuit avec limites</span></td>
+                        <td><span class="access-tag access-paid">Marketing Partners</span></td>
+                        <td><a href="https://developers.facebook.com/docs/marketing-api/buying-api/ad-account#step-1--create-a-test-ad-account" class="api-link">Test Ad Account</a></td>
+                        <td class="sdk-list">Python, PHP, Node.js, Java, Ruby</td>
+                        <td>Campagnes FB/IG, audiences, créatifs, conversions</td>
+                    </tr>
+                    <tr data-category="social" data-access="gratuit">
+                        <td class="provider-name">TikTok Ads</td>
+                        <td><span class="category social">Social</span></td>
+                        <td><a href="https://ads.tiktok.com/marketing_api/docs" class="api-link">Marketing API</a></td>
+                        <td>OAuth2</td>
+                        <td><span class="access-tag access-free">Gratuit</span></td>
+                        <td><span class="access-tag access-paid">Agency solutions</span></td>
+                        <td><a href="https://ads.tiktok.com/marketing_api/docs?id=1738855099573250" class="api-link">Sandbox</a></td>
+                        <td class="sdk-list">Python, Java, PHP, Node.js</td>
+                        <td>Campagnes vidéo, audiences, créatifs, performances</td>
+                    </tr>
+                    <tr data-category="social" data-access="gratuit">
+                        <td class="provider-name">LinkedIn Ads</td>
+                        <td><span class="category social">B2B Social</span></td>
+                        <td><a href="https://docs.microsoft.com/en-us/linkedin/marketing/" class="api-link">Marketing API</a></td>
+                        <td>OAuth2</td>
+                        <td><span class="access-tag access-free">Gratuit</span></td>
+                        <td><span class="access-tag access-paid">Premium features</span></td>
+                        <td>Environnement de développement</td>
+                        <td class="sdk-list">Python, Java, C#</td>
+                        <td>Sponsored Content, Messages, audiences B2B</td>
+                    </tr>
+                    <tr data-category="social" data-access="gratuit">
+                        <td class="provider-name">Twitter Ads (X)</td>
+                        <td><span class="category social">Social</span></td>
+                        <td><a href="https://developer.twitter.com/en/docs/twitter-ads-api" class="api-link">Ads API</a></td>
+                        <td>OAuth2</td>
+                        <td><span class="access-tag access-free">Gratuit avec limites</span></td>
+                        <td><span class="access-tag access-paid">Enterprise access</span></td>
+                        <td>Sandbox intégré</td>
+                        <td class="sdk-list">Python, Ruby, Java</td>
+                        <td>Tweets promus, audiences, campagnes</td>
+                    </tr>
+                    <tr data-category="social" data-access="gratuit">
+                        <td class="provider-name">Snapchat Ads</td>
+                        <td><span class="category social">Social</span></td>
+                        <td><a href="https://developers.snapchat.com/api/docs/" class="api-link">Marketing API</a></td>
+                        <td>OAuth2</td>
+                        <td><span class="access-tag access-free">Gratuit</span></td>
+                        <td><span class="access-tag access-paid">Advanced tools</span></td>
+                        <td>Test environment</td>
+                        <td class="sdk-list">Python, PHP, Node.js</td>
+                        <td>Snap Ads, Story Ads, AR lenses</td>
+                    </tr>
+                    <tr data-category="social" data-access="gratuit">
+                        <td class="provider-name">Pinterest Ads</td>
+                        <td><span class="category social">Social</span></td>
+                        <td><a href="https://developers.pinterest.com/docs/api/v5/" class="api-link">Pinterest API</a></td>
+                        <td>OAuth2</td>
+                        <td><span class="access-tag access-free">Gratuit</span></td>
+                        <td><span class="access-tag access-paid">Business solutions</span></td>
+                        <td>Developer sandbox</td>
+                        <td class="sdk-list">Python, Ruby, PHP</td>
+                        <td>Pins promus, audiences, shopping ads</td>
+                    </tr>
+                    <tr data-category="native" data-access="payant">
+                        <td class="provider-name">Taboola</td>
+                        <td><span class="category native">Native</span></td>
+                        <td><a href="https://developers.taboola.com/" class="api-link">Backstage API</a></td>
+                        <td>Client Credentials</td>
+                        <td><span class="access-tag access-approval">Sur demande</span></td>
+                        <td><span class="access-tag access-paid">Accès client requis</span></td>
+                        <td>Demo environment</td>
+                        <td class="sdk-list">Python, Java, PHP</td>
+                        <td>Contenu natif, recommandations, CPC</td>
+                    </tr>
+                    <tr data-category="native" data-access="payant">
+                        <td class="provider-name">Outbrain</td>
+                        <td><span class="category native">Native</span></td>
+                        <td><a href="https://www.outbrain.com/amplify/api/" class="api-link">Amplify API</a></td>
+                        <td>API Key</td>
+                        <td><span class="access-tag access-approval">Sur demande</span></td>
+                        <td><span class="access-tag access-paid">Accès client requis</span></td>
+                        <td>Staging environment</td>
+                        <td class="sdk-list">Python, Java</td>
+                        <td>Discovery ads, native content, audiences</td>
+                    </tr>
+                    <tr data-category="programmatic" data-access="approval">
+                        <td class="provider-name">The Trade Desk</td>
+                        <td><span class="category programmatic">DSP</span></td>
+                        <td><a href="https://api.thetradedesk.com/v3/doc/api" class="api-link">TTD API</a></td>
+                        <td>OAuth2</td>
+                        <td><span class="access-tag access-approval">Partenaires uniquement</span></td>
+                        <td><span class="access-tag access-paid">Accès DSP requis</span></td>
+                        <td>Sandbox environment</td>
+                        <td class="sdk-list">C#, Python, Java</td>
+                        <td>Programmatic display, video, audio, CTV</td>
+                    </tr>
+                    <tr data-category="programmatic" data-access="approval">
+                        <td class="provider-name">Criteo</td>
+                        <td><span class="category programmatic">Retargeting</span></td>
+                        <td><a href="https://developers.criteo.com/" class="api-link">Marketing Solutions API</a></td>
+                        <td>OAuth2</td>
+                        <td><span class="access-tag access-approval">Clients/Partenaires</span></td>
+                        <td><span class="access-tag access-paid">Solutions entreprise</span></td>
+                        <td>Test environment</td>
+                        <td class="sdk-list">Python, PHP, C#</td>
+                        <td>Retargeting, dynamic ads, audiences</td>
+                    </tr>
+                    <tr data-category="native" data-access="payant">
+                        <td class="provider-name">RevContent</td>
+                        <td><span class="category native">Native</span></td>
+                        <td><a href="https://faq.revcontent.com/en/articles/5435036-api-documentation" class="api-link">RevContent API</a></td>
+                        <td>API Key</td>
+                        <td><span class="access-tag access-approval">Sur demande</span></td>
+                        <td><span class="access-tag access-paid">Accès client requis</span></td>
+                        <td>Limited testing</td>
+                        <td class="sdk-list">Python, PHP</td>
+                        <td>Native ads, content discovery</td>
+                    </tr>
+                    <tr data-category="native" data-access="payant">
+                        <td class="provider-name">MGID</td>
+                        <td><span class="category native">Native</span></td>
+                        <td><a href="https://docs.mgid.com/" class="api-link">MGID API</a></td>
+                        <td>API Token</td>
+                        <td><span class="access-tag access-approval">Sur demande</span></td>
+                        <td><span class="access-tag access-paid">Accès client requis</span></td>
+                        <td>Test campaigns</td>
+                        <td class="sdk-list">Python, PHP, Java</td>
+                        <td>Native advertising, recommandations</td>
+                    </tr>
+                    <tr data-category="programmatic" data-access="payant">
+                        <td class="provider-name">AdRoll</td>
+                        <td><span class="category programmatic">Retargeting</span></td>
+                        <td><a href="https://developers.adroll.com/" class="api-link">AdRoll API</a></td>
+                        <td>OAuth2</td>
+                        <td><span class="access-tag access-free">Gratuit avec compte</span></td>
+                        <td><span class="access-tag access-paid">Advanced features</span></td>
+                        <td>Developer sandbox</td>
+                        <td class="sdk-list">Python, Ruby, PHP</td>
+                        <td>Display retargeting, cross-device</td>
+                    </tr>
+                    <tr data-category="search" data-access="gratuit">
+                        <td class="provider-name">Yahoo Gemini</td>
+                        <td><span class="category search">Search/Native</span></td>
+                        <td><a href="https://developer.yahoo.com/gemini/" class="api-link">Gemini API</a></td>
+                        <td>OAuth2</td>
+                        <td><span class="access-tag access-free">Gratuit</span></td>
+                        <td><span class="access-tag access-paid">Premium tools</span></td>
+                        <td>Test environment</td>
+                        <td class="sdk-list">Java, Python, PHP</td>
+                        <td>Search ads Yahoo, native content</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="stats">
+            <div class="stat-item">
+                <div class="stat-number" id="totalProviders">18</div>
+                <div class="stat-label">Providers Total</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-number" id="freeAccess">10</div>
+                <div class="stat-label">Accès Gratuit</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-number" id="paidAccess">8</div>
+                <div class="stat-label">Accès Payant</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-number" id="approvalAccess">6</div>
+                <div class="stat-label">Sur Approbation</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function filterTable() {
+            const categoryFilter = document.getElementById('categoryFilter').value;
+            const accessFilter = document.getElementById('accessFilter').value;
+            const table = document.getElementById('providersTable');
+            const rows = table.getElementsByTagName('tr');
+            
+            let visibleCount = 0;
+            
+            for (let i = 1; i < rows.length; i++) {
+                const row = rows[i];
+                const category = row.getAttribute('data-category');
+                const access = row.getAttribute('data-access');
+                
+                let showRow = true;
+                
+                if (categoryFilter && category !== categoryFilter) {
+                    showRow = false;
+                }
+                
+                if (accessFilter && access !== accessFilter) {
+                    showRow = false;
+                }
+                
+                if (showRow) {
+                    row.style.display = '';
+                    visibleCount++;
+                } else {
+                    row.style.display = 'none';
+                }
+            }
+            
+            document.getElementById('totalProviders').textContent = visibleCount;
+        }
+        
+        function exportToCSV() {
+            const table = document.getElementById('providersTable');
+            let csv = [];
+            
+            // Headers
+            const headers = [];
+            const headerRow = table.getElementsByTagName('tr')[0];
+            for (let i = 0; i < headerRow.cells.length; i++) {
+                headers.push('"' + headerRow.cells[i].textContent.replace(/"/g, '""') + '"');
+            }
+            csv.push(headers.join(','));
+            
+            // Data rows
+            const rows = table.getElementsByTagName('tr');
+            for (let i = 1; i < rows.length; i++) {
+                if (rows[i].style.display !== 'none') {
+                    const row = [];
+                    for (let j = 0; j < rows[i].cells.length; j++) {
+                        const cellText = rows[i].cells[j].textContent.replace(/"/g, '""');
+                        row.push('"' + cellText + '"');
+                    }
+                    csv.push(row.join(','));
+                }
+            }
+            
+            const csvString = csv.join('\n');
+            const blob = new Blob([csvString], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
+            
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'advertising_providers_api.csv';
+            a.click();
+            
+            window.URL.revokeObjectURL(url);
+        }
+        
+        function exportToExcel() {
+            // Créer le contenu HTML de la table pour Excel
+            const table = document.getElementById('providersTable').outerHTML;
+            const htmlContent = `
+                <html>
+                <head>
+                    <meta charset="UTF-8">
+                    <style>
+                        table { border-collapse: collapse; width: 100%; }
+                        th, td { border: 1px solid #000; padding: 8px; text-align: left; }
+                        th { background-color: #4CAF50; color: white; font-weight: bold; }
+                        .category { background-color: #f0f0f0; }
+                        .api-link { color: blue; }
+                        .access-tag { background-color: #e6e6e6; padding: 2px 4px; }
+                    </style>
+                </head>
+                <body>
+                    <h1>Providers de Publicité Payante - API Access</h1>
+                    <p>Date de génération: ${new Date().toLocaleDateString('fr-FR')}</p>
+                    ${table}
+                </body>
+                </html>
+            `;
+            
+            const blob = new Blob([htmlContent], { 
+                type: 'application/vnd.ms-excel;charset=utf-8;' 
+            });
+            const url = window.URL.createObjectURL(blob);
+            
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'advertising_providers_api.xls';
+            a.click();
+            
+            window.URL.revokeObjectURL(url);
+        }
+        
+        // Initialisation
+        document.addEventListener('DOMContentLoaded', function() {
+            filterTable(); // Pour initialiser les statistiques
+        });
+    </script>
+</body>
+</html>
